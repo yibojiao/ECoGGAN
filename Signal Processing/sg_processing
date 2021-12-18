@@ -1,0 +1,249 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Nov 10 22:32:01 2021
+
+@author: xzy
+"""
+#%%
+import numpy as np
+import matplotlib.pyplot as plt
+import os
+from scipy.signal import welch
+from pynwb import NWBFile
+from pynwb import TimeSeries
+from pynwb import NWBHDF5IO
+from PIL import Image
+from scipy import fftpack
+from scipy.signal import find_peaks
+
+from process_nwb.utils import generate_synthetic_data
+from process_nwb.resample import resample
+from process_nwb.linenoise_notch import apply_linenoise_notch
+from process_nwb.common_referencing import subtract_CAR
+from process_nwb.wavelet_transform import wavelet_transform
+from sklearn.preprocessing import normalize
+
+#%%
+io = NWBHDF5IO('EC9_B53.nwb', 'r')
+nwbfile_in = io.read()
+test_timeseries_in = nwbfile_in.acquisition
+trial = nwbfile_in.trials
+
+raw_data = test_timeseries_in["ElectricalSeries"].data
+raw_data_read = raw_data[:]
+sample_rate = test_timeseries_in["ElectricalSeries"].rate # Hz
+new_sample_rate = 500
+duration = raw_data.shape[0]/sample_rate
+rs_data = resample(raw_data_read, new_sample_rate, sample_rate)
+t = np.linspace(0, duration, rs_data.shape[0])
+
+nth_data = apply_linenoise_notch(rs_data, new_sample_rate)
+#freq, car_pwr = welch(rs_data[:, 0], fs=new_sample_rate, nperseg=1024)
+#_, nth_pwr = welch(nth_data[:, 0], fs=new_sample_rate, nperseg=1024)
+
+#car_data = subtract_CAR(nth_data)
+#normed = normalize(car_data, axis=1, norm='l1')
+
+#%% Run first initialize array
+
+index = 0
+start = trial.start_time[index]
+end = trial.stop_time[index]
+condition = trial.condition[index]
+a = nth_data[int(start*new_sample_rate):int(end*new_sample_rate),:]
+if (len(a)<128):
+    a = np.pad(a, [(0, 128-len(a)), (0, 0)],'constant')
+b = a[:128,:]
+chopped_data = b[:,:256, np.newaxis]
+label = [condition]
+
+#%%
+
+for index in range(len(trial)):
+    start = trial.start_time[index]
+    end = trial.stop_time[index]
+    condition = trial.condition[index]
+    a = nth_data[int(start*new_sample_rate):int(end*new_sample_rate),:]
+    if (len(a)<128):
+        a = np.pad(a, [(0, 128-len(a)), (0, 0)],'constant')
+    b = a[:128,:128,np.newaxis]
+    chopped_data = np.append(chopped_data,b,axis = 2)
+
+chopped_data_trans = chopped_data.T
+#%% Run repeat
+path = 'C:\\Users\\Kaseya\\Downloads\\process_nwb\\examples\\data1'
+#path = 'E:\\data'
+
+for root, _, file_names in os.walk(path):
+    for file_name in file_names:
+        file_path = os.path.join(root, file_name)
+        print(f'Processing {file_path}')
+        io = NWBHDF5IO(file_path, 'r')
+        nwbfile_in = io.read()
+        test_timeseries_in = nwbfile_in.acquisition
+        trial = nwbfile_in.trials
+        
+        raw_data = test_timeseries_in["ElectricalSeries"].data
+        raw_data_read = raw_data[:]
+        sample_rate = test_timeseries_in["ElectricalSeries"].rate # Hz
+        new_sample_rate = 500
+        duration = raw_data.shape[0]/sample_rate
+        rs_data = resample(raw_data_read, new_sample_rate, sample_rate)
+        t = np.linspace(0, duration, rs_data.shape[0])
+        
+        nth_data = apply_linenoise_notch(rs_data, new_sample_rate)
+        
+        """index = 0
+        start = trial.start_time[index]
+        end = trial.stop_time[index]
+        condition = trial.condition[index]
+        a = nth_data[int(start*new_sample_rate):int(end*new_sample_rate),:]
+        if (len(a)<128):
+            a = np.pad(a, [(0, 128-len(a)), (0, 0)],'constant')
+        b = a[:128,:]
+        chopped_data = b[:,:64, np.newaxis]"""
+       
+        
+        for index in range(len(trial)):
+            start = trial.start_time[index]
+            end = trial.stop_time[index]
+            condition = trial.condition[index]
+            a = nth_data[int(start*new_sample_rate):int(end*new_sample_rate),:]
+            if (len(a)<128):
+                a = np.pad(a, [(0, 128-len(a)), (0, 0)],'constant')
+            b = a[:128,:128,np.newaxis]
+            chopped_data = np.append(chopped_data,b,axis = 2)
+            label = np.append(label, condition)
+            
+#%% normalize all data between -1,1
+row, col, lin = chopped_data.shape
+for l in range(lin):
+    for c in range(col):
+        chopped_data[:,c,l] = 2.*(chopped_data[:,c,l] - np.min(chopped_data[:,c,l]))/np.ptp(chopped_data[:,c,l])-1
+#%%
+chopped_data_image = np.copy(chopped_data)
+row, col, lin = chopped_data.shape
+for l in range(lin):
+    for c in range(col):
+        chopped_data_image[:,c,l] = (255*(chopped_data[:,c,l] - np.min(chopped_data[:,c,l]))/np.ptp(chopped_data[:,c,l])).astype(int)
+#%%
+outdata_T = chopped_data.T
+outdata = np.array([chopped_data, label])
+outdata_trans = np.array([outdata_T, (label,1,1)])
+#%%
+plt.plot(signal[:,0,0])
+#%%  
+np.save('data_all_T.npy', outdata_trans)
+#%%
+#t1 = np.load('data.npy')
+#t2 = np.load('data1.npy')
+data = np.load('data_all_eva.npy',allow_pickle = True)
+signal = data[0]
+label = data[1]
+#np.save('data_all_T.npy', t3_t)
+#%%
+img_reshape = np.transpose(signal,(2,0,1))
+img_arr = np.expand_dims(img_reshape, 3)
+img_arr = img_arr/255
+#%%
+np.savez('data_all_expend.npz', img_arr, allow_pickle = True)
+#%%
+for i in range(100):
+    image_array = freq_array[i,:,:]*255
+    im = Image.fromarray(image_array).convert("L")
+    im.save(f"test{i}.png")
+#%%
+d = chopped_data[:,:,0]
+e = (255*(d - np.min(d))/np.ptp(d)).astype(int)
+plt.plot(e)
+#%%
+image_array = signal[:,:,0]
+im = Image.fromarray(image_array).convert("RGB")
+im.save("test.png")
+#%%
+im_load = Image.open("test.png")
+e_load = np.asarray(im_load)
+#%% generate random noise, save to image
+for i in range(150):
+    noise = np.random.rand(128,128,3) * 255
+    im = Image.fromarray(noise.astype('uint8')).convert('RGB')
+    im.save(f'noise{i}.png')
+#%%
+signal = signal[:,:,:2000]
+label = label[:2000]
+#%%
+test = signal[:,0,1]
+plt.plot(test)
+#%%
+test_fft = np.fft.fft(test)
+freqs = np.fft.fftfreq(len(test), 1.0/500)
+plt.plot(freqs,abs(test_fft))
+#%%
+test_fft[:17]= 0
+test_fft[52:77]=0
+test_fft[110:]=0
+#test_recon = np.fft.irfft(test_fft)
+plt.plot(freqs,abs(test_fft))
+real = test_fft.real
+imge = test_fft.imag
+#%%
+at,bt,ct = signal.shape
+output_list = []
+for b in range(bt):
+    channel_list = []
+    for c in range(ct):
+        note = signal[:,b,c]
+        note_fft = np.fft.rfft(note)
+        note_fft[:17]= 0
+        note_fft[52:77]=0
+        note_fft[110:]=0
+        #note_recon = np.fft.irfft(note_fft)
+        channel_list.append(note_recon)
+    channel_array = np.asarray(channel_list)
+    output_list.append(channel_array)
+#%%
+final_array = np.asarray(output_list)
+freq_array= np.transpose(final_array,(1,2,0))
+row, col, lin = freq_array.shape
+for r in range(row):
+    for l in range(lin):
+        freq_array[r,:,l] = 2.*(freq_array[r,:,l] - np.min(freq_array[r,:,l]))/np.ptp(freq_array[r,:,l])-1
+#%%
+gamma_array = freq_array[:,:,:,np.newaxis]
+#%%
+np.savez('gamma',gamma_array)
+
+#%%
+at,bt,ct = signal.shape
+output_list = []
+for b in range(bt):
+    channel_list = []
+    for c in range(ct):
+        note = signal[:,b,c]
+        note_fft = np.fft.fft(note)
+        note_fft[:15]= 0
+        note_fft[52:]=0
+        note_fft[110:]=0
+        #note_recon = np.fft.irfft(note_fft)
+        channel_list.append(abs(note_fft))
+    channel_array = np.asarray(channel_list)
+    output_list.append(channel_array)
+#%%
+
+#%%
+final_array = np.asarray(output_list)
+freq_array= np.transpose(final_array,(1,2,0))
+row, col, lin = freq_array.shape
+for r in range(row):
+    for l in range(lin):
+        freq_array[r,:,l] = 2.*(freq_array[r,:,l] - np.min(freq_array[r,:,l]))/np.ptp(freq_array[r,:,l])-1   
+    
+#%%
+gamma_array = freq_array[:,:,:,np.newaxis]  
+
+#%%
+np.savez('gamma_freq',gamma_array)
+
+
+

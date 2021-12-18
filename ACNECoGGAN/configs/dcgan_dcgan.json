@@ -1,0 +1,23 @@
+{
+    "result_path":"train_results/Comb/DCGAN/DCGAN",
+    "save_model_path":"saved_models/Comb/DCGAN/DCGAN",
+    "performance_log":"logs/Comb/DCGAN/DCGAN",
+    "GAN_model":{
+        "epochs":"100",
+	"mini_batch_size": 10
+    },
+
+    "generator":{
+        "choice":"dcgan",
+	"input_shape":128
+    },
+
+    "discriminator":{
+        "choice":"dcgan",
+	"input_shape":128
+    },
+
+    "data_path":"datasets/image_array.npz",
+    "metric_evaluate": "FID",
+    "sample_interval": 1000
+}
