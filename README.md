@@ -1,4 +1,4 @@
-#ECoGGAN
+# ECoGGAN
 
 ## Introduction
 This project implemented a signal processing and GAN model with attention learning for synthesizing aritificial ECoG data
